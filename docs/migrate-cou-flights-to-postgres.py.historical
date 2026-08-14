@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""One-time migration: copy every row out of the old SQLite history store
+(~/MANDI/cou-flights.db) into the new PostgreSQL `flights` database, verify
+the row counts match, then leave both stores intact (the SQLite file is
+only deleted manually, after independently confirming the dashboard reads
+correctly from Postgres -- see ~/MANDI/MANDI-plan.md for the migration
+writeup).
+
+Run once: python3 migrate-cou-flights-to-postgres.py
+Kept afterward for reference, same convention as srs9-docker-install.sh.
+"""
+import os
+import sqlite3
+from datetime import datetime
+
+import psycopg2
+
+SQLITE_PATH = os.path.expanduser("~/MANDI/cou-flights.db")
+DB_DSN = {
+    "host": "localhost",
+    "dbname": "flights",
+    "user": "cou_flights",
+    "password": os.environ["COU_FLIGHTS_DB_PASSWORD"],
+}
+
+INSERT_SQL = """
+INSERT INTO flights (
+    direction, flight_number, scheduled_date, place, scheduled, actual, gate,
+    status, status_label, emphasis, first_seen, last_updated
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (direction, flight_number, scheduled_date) DO NOTHING
+"""
+
+
+def main():
+    sconn = sqlite3.connect(SQLITE_PATH)
+    sconn.row_factory = sqlite3.Row
+    rows = sconn.execute("SELECT * FROM flights ORDER BY direction, scheduled_date, flight_number").fetchall()
+    sconn.close()
+    print(f"read {len(rows)} rows from SQLite")
+
+    pconn = psycopg2.connect(**DB_DSN)
+    try:
+        with pconn.cursor() as cur:
+            for r in rows:
+                scheduled = datetime.fromisoformat(r["scheduled"])
+                actual = datetime.fromisoformat(r["actual"]) if r["actual"] else None
+                first_seen = datetime.fromisoformat(r["first_seen"])
+                last_updated = datetime.fromisoformat(r["last_updated"])
+                cur.execute(
+                    INSERT_SQL,
+                    (
+                        r["direction"], r["flight_number"], r["scheduled_date"], r["place"],
+                        scheduled, actual, r["gate"], r["status"], r["status_label"],
+                        r["emphasis"], first_seen, last_updated,
+                    ),
+                )
+        pconn.commit()
+
+        with pconn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM flights")
+            pg_count = cur.fetchone()[0]
+    finally:
+        pconn.close()
+
+    print(f"flights table now has {pg_count} rows")
+    if pg_count != len(rows):
+        print(f"WARNING: row count mismatch (sqlite={len(rows)}, postgres={pg_count})")
+        return 1
+    print("OK row counts match")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
