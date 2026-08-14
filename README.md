@@ -21,6 +21,11 @@ HA; `ha/lovelace/cou_flights.yaml` renders it.
 The fetch script never overwrites the cache on a failed/stale fetch — a stale
 `fetched_at` timestamp *is* the freshness signal the dashboard uses.
 
+`db/schema.sql` carries `COMMENT ON TABLE`/`COMMENT ON COLUMN` documentation
+for every column (e.g. `status` vs `status_label` vs `emphasis`, `gate`'s
+final-hour-only population) — visible via `\d+ flights` in `psql`, not just
+in this README.
+
 ## Prerequisites
 
 - PostgreSQL reachable as `localhost` (no extensions required — plain
