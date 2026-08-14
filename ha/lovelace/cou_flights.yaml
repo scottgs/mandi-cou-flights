@@ -1,0 +1,135 @@
+title: COU Flights
+views:
+
+  - title: COU Flights
+    path: cou-flights
+    icon: mdi:airplane
+    type: panel
+    cards:
+
+      - type: horizontal-stack
+        cards:
+
+          - type: markdown
+            title: Arrivals
+            card_mod:
+              style:
+                ha-markdown$: |
+                  table tr[valign="middle"] td {
+                    background-color: #d6eaf8;
+                  }
+            content: |-
+              {%- set yesterday = state_attr('sensor.cou_flights', 'yesterday') -%}
+              {%- set today = state_attr('sensor.cou_flights', 'today') -%}
+              {%- set tomorrow = state_attr('sensor.cou_flights', 'tomorrow') -%}
+              {%- set flights_yesterday = state_attr('sensor.cou_flights', 'arrivals_yesterday') or [] -%}
+              {%- set flights_today = state_attr('sensor.cou_flights', 'arrivals_today') or [] -%}
+              {%- set flights_tomorrow = state_attr('sensor.cou_flights', 'arrivals_tomorrow') or [] -%}
+              {%- set fetched = state_attr('sensor.cou_flights', 'fetched_at') -%}
+              {%- set age_min = ((now() - as_datetime(fetched)).total_seconds() / 60) | round(0) if fetched else none -%}
+              {%- macro render_table(flights, show_next, empty_label) -%}
+              <table width="100%">
+              <tr><th align="left">Scheduled</th><th align="left">Flight</th><th align="left">From</th><th>Status</th><th>Actual</th><th>Gate</th></tr>
+              {%- set ns = namespace(bolded=false) -%}
+              {%- for f in flights %}
+              {%- set sched = as_datetime(f.scheduled) -%}
+              {%- set actual_dt = as_datetime(f.actual) if f.actual else none -%}
+              {%- set show_gate = (sched - now()).total_seconds() <= 3600 -%}
+              {%- set is_next = show_next and (not ns.bolded) and f.status not in ['landed', 'landed_late'] -%}
+              {%- if is_next -%}{%- set ns.bolded = true -%}{%- endif %}
+              {%- set is_future = f.status == 'scheduled' -%}
+              <tr{{ ' valign="middle"' if is_future else '' }}>
+              <td>{{ '<b>' if is_next else '' }}{{ sched.strftime('%I:%M %p') }}{{ '</b>' if is_next else '' }}</td>
+              <td>{{ '<b>' if is_next else '' }}{{ f.flight_number }}{{ '</b>' if is_next else '' }}</td>
+              <td>{{ f.place }}</td>
+              <td align="center">{% if f.emphasis == 'late' %}<font color="#b71c1c"><b>{{ f.status_label }}</b></font>{% elif f.emphasis == 'early' %}<font color="#1b5e20"><b>{{ f.status_label }}</b></font>{% else %}{{ f.status_label }}{% endif %}</td>
+              <td align="center">{{ actual_dt.strftime('%I:%M %p') if actual_dt else '—' }}</td>
+              <td align="center">{{ f.gate if (f.gate and show_gate) else '—' }}</td>
+              </tr>
+              {%- endfor %}
+              {%- if not flights %}
+              <tr><td colspan="6"><i>{{ empty_label }}</i></td></tr>
+              {%- endif %}
+              </table>
+              {%- endmacro -%}
+              <font size="+1">
+              {%- if now().hour < 10 %}
+              <div><b>{{ yesterday.label }} (after 2pm)</b></div>
+              {{ render_table(flights_yesterday, false, "No arrivals after 2pm yesterday") }}
+              {%- endif %}
+              <div><font size="+1"><b>{{ today.label if today else '' }}</b></font></div>
+              {%- if age_min is none %}
+              <div><font color="#757575"><i>No data yet</i></font></div>
+              {%- elif age_min > 20 %}
+              <div><font color="#e65100">⚠ Stale — last updated {{ age_min | int }}m ago</font></div>
+              {%- else %}
+              <div><font color="#757575">Updated {{ age_min | int }}m ago</font></div>
+              {%- endif %}
+              {{ render_table(flights_today, true, "No arrivals today") }}
+              {%- if now().hour >= 17 %}
+              <div><b>{{ tomorrow.label if tomorrow else '' }}</b></div>
+              {{ render_table(flights_tomorrow, false, "No arrivals scheduled") }}
+              {%- endif %}
+              </font>
+
+          - type: markdown
+            title: Departures
+            card_mod:
+              style:
+                ha-markdown$: |
+                  table tr[valign="middle"] td {
+                    background-color: #d6eaf8;
+                  }
+            content: |-
+              {%- set yesterday = state_attr('sensor.cou_flights', 'yesterday') -%}
+              {%- set today = state_attr('sensor.cou_flights', 'today') -%}
+              {%- set tomorrow = state_attr('sensor.cou_flights', 'tomorrow') -%}
+              {%- set flights_yesterday = state_attr('sensor.cou_flights', 'departures_yesterday') or [] -%}
+              {%- set flights_today = state_attr('sensor.cou_flights', 'departures_today') or [] -%}
+              {%- set flights_tomorrow = state_attr('sensor.cou_flights', 'departures_tomorrow') or [] -%}
+              {%- set fetched = state_attr('sensor.cou_flights', 'fetched_at') -%}
+              {%- set age_min = ((now() - as_datetime(fetched)).total_seconds() / 60) | round(0) if fetched else none -%}
+              {%- macro render_table(flights, show_next, empty_label) -%}
+              <table width="100%">
+              <tr><th align="left">Scheduled</th><th align="left">Flight</th><th align="left">To</th><th>Status</th><th>Actual</th><th>Gate</th></tr>
+              {%- set ns = namespace(bolded=false) -%}
+              {%- for f in flights %}
+              {%- set sched = as_datetime(f.scheduled) -%}
+              {%- set actual_dt = as_datetime(f.actual) if f.actual else none -%}
+              {%- set show_gate = (sched - now()).total_seconds() <= 3600 -%}
+              {%- set is_next = show_next and (not ns.bolded) and f.status not in ['landed', 'landed_late'] -%}
+              {%- if is_next -%}{%- set ns.bolded = true -%}{%- endif %}
+              {%- set is_future = f.status == 'scheduled' -%}
+              <tr{{ ' valign="middle"' if is_future else '' }}>
+              <td>{{ '<b>' if is_next else '' }}{{ sched.strftime('%I:%M %p') }}{{ '</b>' if is_next else '' }}</td>
+              <td>{{ '<b>' if is_next else '' }}{{ f.flight_number }}{{ '</b>' if is_next else '' }}</td>
+              <td>{{ f.place }}</td>
+              <td align="center">{% if f.emphasis == 'late' %}<font color="#b71c1c"><b>{{ f.status_label }}</b></font>{% elif f.emphasis == 'early' %}<font color="#1b5e20"><b>{{ f.status_label }}</b></font>{% else %}{{ f.status_label }}{% endif %}</td>
+              <td align="center">{{ actual_dt.strftime('%I:%M %p') if actual_dt else '—' }}</td>
+              <td align="center">{{ f.gate if (f.gate and show_gate) else '—' }}</td>
+              </tr>
+              {%- endfor %}
+              {%- if not flights %}
+              <tr><td colspan="6"><i>{{ empty_label }}</i></td></tr>
+              {%- endif %}
+              </table>
+              {%- endmacro -%}
+              <font size="+1">
+              {%- if now().hour < 10 %}
+              <div><b>{{ yesterday.label }} (after 2pm)</b></div>
+              {{ render_table(flights_yesterday, false, "No departures after 2pm yesterday") }}
+              {%- endif %}
+              <div><font size="+1"><b>{{ today.label if today else '' }}</b></font></div>
+              {%- if age_min is none %}
+              <div><font color="#757575"><i>No data yet</i></font></div>
+              {%- elif age_min > 20 %}
+              <div><font color="#e65100">⚠ Stale — last updated {{ age_min | int }}m ago</font></div>
+              {%- else %}
+              <div><font color="#757575">Updated {{ age_min | int }}m ago</font></div>
+              {%- endif %}
+              {{ render_table(flights_today, true, "No departures today") }}
+              {%- if now().hour >= 17 %}
+              <div><b>{{ tomorrow.label if tomorrow else '' }}</b></div>
+              {{ render_table(flights_tomorrow, false, "No departures scheduled") }}
+              {%- endif %}
+              </font>

@@ -1,0 +1,11 @@
+[Unit]
+Description=Fetch COU (Columbia Regional Airport) flight status for the MANDI HA dashboard
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__INSTALL_USER__
+EnvironmentFile=/etc/mandi/cou-flights.env
+Environment=HA_WWW_DIR=__HA_WWW_DIR__
+ExecStart=/usr/bin/python3 __REPO_DIR__/fetch/cou-flights-fetch.py

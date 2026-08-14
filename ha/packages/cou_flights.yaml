@@ -1,0 +1,31 @@
+# COU (Columbia Regional Airport) Flights package
+#
+# Data comes from ~/MANDI/cou-flights-fetch.py -- a host-side script run every
+# 5 minutes by the cou-flights-fetch.timer systemd unit. It scrapes flycou.com,
+# normalizes/validates the board, and atomically writes
+# ~/homeassistant/config/www/cou_flights/flights.json, which is already inside
+# this container's bind-mounted /config, so no extra volume is needed here.
+#
+# The script never overwrites the cache on a bad/stale fetch (see
+# ~/MANDI/cou-flights-plan.md §5), so `fetched_at` staying old *is* the
+# freshness signal the dashboard uses -- no separate error/status file.
+
+command_line:
+  - sensor:
+      name: "COU Flights"
+      unique_id: cou_flights
+      command: "cat /config/www/cou_flights/flights.json"
+      scan_interval: 60
+      value_template: "{{ value_json.fetched_at }}"
+      json_attributes:
+        - fetched_at
+        - yesterday
+        - today
+        - tomorrow
+        - arrivals_yesterday
+        - arrivals_today
+        - arrivals_tomorrow
+        - departures_yesterday
+        - departures_today
+        - departures_tomorrow
+        - db_stats
