@@ -7,7 +7,8 @@ correctly from Postgres -- see ~/MANDI/MANDI-plan.md for the migration
 writeup).
 
 Run once: python3 migrate-cou-flights-to-postgres.py
-Kept afterward for reference, same convention as srs9-docker-install.sh.
+Kept afterward for reference, same convention as this project's other
+one-time install/migration scripts.
 """
 import os
 import sqlite3

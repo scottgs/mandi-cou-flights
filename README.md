@@ -39,7 +39,7 @@ in this README.
 
 ```
 ./install.sh <install-user> <repo-dir> <ha-config-dir>
-# e.g. on srs9 itself:
+# e.g. on server_name itself:
 ./install.sh scottgs /home/scottgs/repos/mandi-cou-flights /home/scottgs/homeassistant/config
 ```
 
@@ -72,9 +72,10 @@ The one-time SQLite→PostgreSQL migration this panel went through before
 being extracted into its own repo: `docs/migrate-cou-flights-to-postgres.py.historical`
 (kept for the record; not runnable anymore, its SQLite source is gone).
 
-## Note: shared dependency from `srs9_health.yaml`
+## Note: possible dependency from another dashboard
 
-If a `srs9_health` dashboard is also installed on the target host, its "COU
-Flights DB" card reads `sensor.cou_flights`'s `db_stats` attribute — that
-entity only exists once this panel is installed. Not a hard dependency (that
-card just shows nothing until this panel is present), but worth knowing.
+If a separate system-health dashboard on the target host has a card reading
+`sensor.cou_flights`'s `db_stats` attribute, that entity only exists once
+this panel is installed. Not a hard dependency (that card just shows nothing
+until this panel is present), but worth knowing if you're installing
+alongside a broader home-server monitoring setup.
