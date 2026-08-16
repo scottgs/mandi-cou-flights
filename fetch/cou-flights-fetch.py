@@ -256,8 +256,12 @@ def upsert_flights(conn, direction, rows, fetched_at):
 
 
 def serialize_row(row):
-    row["scheduled"] = row["scheduled"].isoformat()
-    row["actual"] = row["actual"].isoformat() if row["actual"] else None
+    # psycopg2 returns TIMESTAMPTZ values in the connection's session timezone
+    # (the Postgres server default, Etc/UTC here) rather than the zone they
+    # were inserted with -- convert explicitly so the JSON cache (and every
+    # HA template reading it) always sees America/Chicago, not UTC.
+    row["scheduled"] = row["scheduled"].astimezone(TZ).isoformat()
+    row["actual"] = row["actual"].astimezone(TZ).isoformat() if row["actual"] else None
     return row
 
 
