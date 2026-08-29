@@ -12,7 +12,7 @@ onto any MANDI/Home-Assistant host independent of any other panel.
 ## How it works
 
 `fetch/cou-flights-fetch.py` scrapes flycou.com's own HTML flight-status feed
-every 5 minutes (via the `cou-flights-fetch.timer` systemd unit), upserts
+every 7 minutes (via the `cou-flights-fetch.timer` systemd unit), upserts
 every row into a dedicated PostgreSQL database (`flights`), and atomically
 rewrites a JSON cache under Home Assistant's `www/` directory. A
 `command_line` sensor (`ha/packages/cou_flights.yaml`) exposes that cache to
