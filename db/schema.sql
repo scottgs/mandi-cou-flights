@@ -82,14 +82,14 @@ COMMENT ON COLUMN flights.last_updated IS
     'fetched_at of the most recent fetch run that upserted this row.';
 
 COMMENT ON TABLE aircraft_positions IS
-    'Position pings for one tracked aircraft (currently only N8382A), '
-    'upserted by fetch/n8382a-tracker-fetch.py from the OpenSky Network '
-    'API every minute. Flight sessions are derived at query time by '
-    'splitting on >10-minute gaps between consecutive rows -- there is no '
-    'separate sessions table.';
+    'Position pings for one or more tracked aircraft (currently N8382A and '
+    'N621MM), upserted by fetch/aircraft-tracker-fetch.py from the OpenSky '
+    'Network API every minute. Flight sessions are derived at query time '
+    'per tail_number by splitting on >10-minute gaps between consecutive '
+    'rows -- there is no separate sessions table.';
 COMMENT ON COLUMN aircraft_positions.tail_number IS
     'FAA registration, e.g. ''N8382A''. Denormalized alongside icao24 so '
-    'queries/joins never need a lookup table for a single-aircraft feature.';
+    'queries/joins never need a lookup table.';
 COMMENT ON COLUMN aircraft_positions.icao24 IS
     'ICAO24 / Mode-S hex address, e.g. ''ab78b1'' -- what OpenSky itself '
     'keys state vectors by.';
@@ -104,7 +104,7 @@ COMMENT ON COLUMN aircraft_positions.heading_deg IS
 COMMENT ON COLUMN aircraft_positions.on_ground IS
     'OpenSky''s on_ground flag. Does NOT by itself determine "flying" vs '
     '"grounded" status in the dashboard -- see determine_status() in '
-    'fetch/n8382a-tracker-fetch.py, which uses row freshness instead (a '
+    'fetch/aircraft-tracker-fetch.py, which uses row freshness instead (a '
     'fresh on_ground=true row during taxi still counts as "flying").';
 COMMENT ON COLUMN aircraft_positions.recorded_at IS
     'OpenSky''s last_contact for this ping. UNIQUE with tail_number -- '
