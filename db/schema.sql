@@ -43,10 +43,16 @@ CREATE TABLE IF NOT EXISTS aircraft_positions (
     on_ground       BOOLEAN NOT NULL,
     recorded_at     TIMESTAMPTZ NOT NULL,
     fetched_at      TIMESTAMPTZ NOT NULL,
+    is_xander       BOOLEAN NOT NULL DEFAULT false,
     UNIQUE (tail_number, recorded_at)
 );
 CREATE INDEX IF NOT EXISTS aircraft_positions_geom_idx
     ON aircraft_positions USING gist (geom);
+
+-- ADD COLUMN IF NOT EXISTS so this file stays a safe no-op re-run against a
+-- database that already had aircraft_positions before is_xander existed --
+-- the CREATE TABLE IF NOT EXISTS above only takes effect on a fresh install.
+ALTER TABLE aircraft_positions ADD COLUMN IF NOT EXISTS is_xander BOOLEAN NOT NULL DEFAULT false;
 
 -- COMMENT ON is metadata-only (not a CREATE OR REPLACE, never touches data),
 -- so it's safe to re-run alongside the rest of this idempotent file.
