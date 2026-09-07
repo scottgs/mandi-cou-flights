@@ -134,10 +134,18 @@ views:
               {%- endif %}
               </font>
 
-  - title: N8382A
+  - title: XS
     path: n8382a-tracker
     icon: mdi:airplane-marker
     type: panel
     cards:
       - type: custom:mandi-aircraft-tracker-card
         entity: sensor.n8382a_tracker
+
+  - title: TS
+    path: n621mm-tracker
+    icon: mdi:airplane-marker
+    type: panel
+    cards:
+      - type: custom:mandi-aircraft-tracker-card
+        entity: sensor.n621mm_tracker

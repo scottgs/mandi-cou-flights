@@ -10,15 +10,15 @@ HA_CONFIG_DIR="${1:?Usage: uninstall.sh <ha-config-dir>}"
 
 echo "== 1/3: systemd =="
 sudo systemctl disable --now cou-flights-fetch.timer || true
-sudo systemctl disable --now n8382a-tracker-fetch.timer || true
+sudo systemctl disable --now aircraft-tracker-fetch.timer || true
 sudo rm -f /etc/systemd/system/cou-flights-fetch.service /etc/systemd/system/cou-flights-fetch.timer
-sudo rm -f /etc/systemd/system/n8382a-tracker-fetch.service /etc/systemd/system/n8382a-tracker-fetch.timer
+sudo rm -f /etc/systemd/system/aircraft-tracker-fetch.service /etc/systemd/system/aircraft-tracker-fetch.timer
 sudo systemctl daemon-reload
 
 echo "== 2/3: HA dashboard + package files =="
 rm -f "${HA_CONFIG_DIR}/lovelace/cou_flights.yaml" "${HA_CONFIG_DIR}/packages/cou_flights.yaml"
 
-echo "== N8382A tracker map card =="
+echo "== aircraft tracker map card =="
 rm -rf "${HA_CONFIG_DIR}/www/community/mandi-aircraft-tracker"
 python3 - "${HA_CONFIG_DIR}/.storage/lovelace_resources" <<'PYEOF'
 import json, os, sys

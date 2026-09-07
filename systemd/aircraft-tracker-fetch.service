@@ -1,5 +1,5 @@
 [Unit]
-Description=Track tail number N8382A via OpenSky for the MANDI HA dashboard
+Description=Track aircraft (N8382A, N621MM) via OpenSky for the MANDI HA dashboard
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -8,4 +8,4 @@ Type=oneshot
 User=__INSTALL_USER__
 EnvironmentFile=/etc/mandi/cou-flights.env
 Environment=HA_WWW_DIR=__HA_WWW_DIR__
-ExecStart=/usr/bin/python3 __REPO_DIR__/fetch/n8382a-tracker-fetch.py
+ExecStart=/usr/bin/python3 __REPO_DIR__/fetch/aircraft-tracker-fetch.py N8382A N621MM

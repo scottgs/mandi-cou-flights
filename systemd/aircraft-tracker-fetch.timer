@@ -1,5 +1,5 @@
 [Unit]
-Description=Run n8382a-tracker-fetch.service every minute
+Description=Run aircraft-tracker-fetch.service every minute
 
 [Timer]
 OnBootSec=1min

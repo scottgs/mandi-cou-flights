@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Unit tests for the pure/pure-ish functions in n8382a-tracker-fetch.py.
-Run: python3 fetch/test_n8382a_tracker_fetch.py
+"""Unit tests for the pure/pure-ish functions in aircraft-tracker-fetch.py.
+Run: python3 fetch/test_aircraft_tracker_fetch.py
 """
 import importlib.util
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # DB_DSN is built at module import time and requires this env var (matches
 # cou-flights-fetch.py's own pattern) -- a dummy value is fine, these tests
@@ -13,8 +13,8 @@ from datetime import datetime, timezone
 os.environ.setdefault("COU_FLIGHTS_DB_PASSWORD", "test-only-not-used")
 
 _spec = importlib.util.spec_from_file_location(
-    "n8382a_tracker_fetch",
-    os.path.join(os.path.dirname(__file__), "n8382a-tracker-fetch.py"),
+    "aircraft_tracker_fetch",
+    os.path.join(os.path.dirname(__file__), "aircraft-tracker-fetch.py"),
 )
 tracker = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tracker)
@@ -23,6 +23,51 @@ _spec.loader.exec_module(tracker)
 def dt(minute, second=0):
     """Shorthand: an aware UTC datetime at 2026-09-01 12:MM:SS."""
     return datetime(2026, 9, 1, 12, minute, second, tzinfo=timezone.utc)
+
+
+class TestResolveAircraft(unittest.TestCase):
+    def test_single_known_tail_number(self):
+        self.assertEqual(tracker.resolve_aircraft(["N8382A"]), [("N8382A", "ab78b1")])
+
+    def test_multiple_known_tail_numbers_preserve_order(self):
+        self.assertEqual(
+            tracker.resolve_aircraft(["N621MM", "N8382A"]),
+            [("N621MM", "a81b13"), ("N8382A", "ab78b1")],
+        )
+
+    def test_unknown_tail_number_raises(self):
+        with self.assertRaises(ValueError):
+            tracker.resolve_aircraft(["N99999"])
+
+    def test_unknown_tail_number_named_in_error(self):
+        with self.assertRaises(ValueError) as ctx:
+            tracker.resolve_aircraft(["N99999"])
+        self.assertIn("N99999", str(ctx.exception))
+
+    def test_all_unknown_tail_numbers_named_at_once(self):
+        with self.assertRaises(ValueError) as ctx:
+            tracker.resolve_aircraft(["N99999", "N88888"])
+        self.assertIn("N99999", str(ctx.exception))
+        self.assertIn("N88888", str(ctx.exception))
+
+    def test_mix_of_known_and_unknown_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            tracker.resolve_aircraft(["N8382A", "N99999"])
+        self.assertIn("N99999", str(ctx.exception))
+        self.assertNotIn("N8382A", str(ctx.exception).split("known:")[0])
+
+    def test_empty_list_returns_empty(self):
+        self.assertEqual(tracker.resolve_aircraft([]), [])
+
+
+class TestCachePathFor(unittest.TestCase):
+    def test_lowercases_tail_number(self):
+        self.assertTrue(tracker.cache_path_for("N8382A").endswith("n8382a.json"))
+
+    def test_different_aircraft_get_different_paths(self):
+        self.assertNotEqual(
+            tracker.cache_path_for("N8382A"), tracker.cache_path_for("N621MM")
+        )
 
 
 class TestSplitIntoSessions(unittest.TestCase):
@@ -121,17 +166,18 @@ class TestParseStateVector(unittest.TestCase):
         self.assertIsNone(tracker.parse_state_vector(vector))
 
 
-from datetime import timedelta
-
-
 class TestBuildCachePayload(unittest.TestCase):
     def test_no_history_at_all(self):
-        payload = tracker.build_cache_payload([], dt(30))
+        payload = tracker.build_cache_payload("N8382A", [], dt(30))
         self.assertEqual(payload["status"], "grounded")
         self.assertEqual(payload["historical_flights"], [])
         self.assertNotIn("current_trail", payload)
         self.assertNotIn("current", payload)
         self.assertEqual(payload["tail_number"], "N8382A")
+
+    def test_tail_number_is_parameterized_not_hardcoded(self):
+        payload = tracker.build_cache_payload("N621MM", [], dt(30))
+        self.assertEqual(payload["tail_number"], "N621MM")
 
     def test_grounded_with_history(self):
         session_a = [
@@ -140,7 +186,7 @@ class TestBuildCachePayload(unittest.TestCase):
             {"recorded_at": dt(41), "lat": 39.1, "lon": -94.6, "altitude_ft": 0,
              "ground_speed_kt": 0, "heading_deg": 180, "on_ground": True},
         ]
-        payload = tracker.build_cache_payload([session_a], dt(0) + timedelta(minutes=120))
+        payload = tracker.build_cache_payload("N8382A", [session_a], dt(0) + timedelta(minutes=120))
         self.assertEqual(payload["status"], "grounded")
         self.assertEqual(len(payload["historical_flights"]), 1)
         flight = payload["historical_flights"][0]
@@ -161,7 +207,7 @@ class TestBuildCachePayload(unittest.TestCase):
             {"recorded_at": dt(51), "lat": 39.3, "lon": -94.8, "altitude_ft": 1200,
              "ground_speed_kt": 105, "heading_deg": 270, "on_ground": False},
         ]
-        payload = tracker.build_cache_payload([past, current], dt(51))
+        payload = tracker.build_cache_payload("N8382A", [past, current], dt(51))
         self.assertEqual(payload["status"], "flying")
         self.assertEqual(len(payload["historical_flights"]), 1)  # only `past`
         self.assertEqual(payload["current_trail"], [[39.2, -94.7], [39.3, -94.8]])
@@ -183,7 +229,7 @@ class TestBuildCachePayload(unittest.TestCase):
                 {"recorded_at": start + timedelta(minutes=1), "lat": 39.05, "lon": -94.55,
                  "altitude_ft": 0, "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
             ])
-        payload = tracker.build_cache_payload(sessions, dt(0) + timedelta(days=1))  # everything stale -> grounded
+        payload = tracker.build_cache_payload("N8382A", sessions, dt(0) + timedelta(days=1))  # everything stale -> grounded
         self.assertEqual(len(payload["historical_flights"]), tracker.MAX_HISTORICAL_FLIGHTS)
         # Most recent first: session 6 (i=6) before session 5 (i=5), etc. --
         # top 5 of 7, oldest two (i=0,1) excluded.
@@ -205,7 +251,7 @@ class TestBuildCachePayload(unittest.TestCase):
             {"recorded_at": dt(1), "lat": 39.05, "lon": -94.55, "altitude_ft": 0,
              "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
         ]
-        payload = tracker.build_cache_payload([session], dt(0) + timedelta(minutes=120))
+        payload = tracker.build_cache_payload("N8382A", [session], dt(0) + timedelta(minutes=120))
         flight = payload["historical_flights"][0]
         # dt(0) is 12:00 UTC on 2026-09-01 -> 07:00 America/Chicago (CDT, -05:00)
         self.assertTrue(flight["started_at"].endswith("-05:00"))
@@ -227,7 +273,7 @@ class TestBuildCachePayload(unittest.TestCase):
              "ground_speed_kt": 105, "heading_deg": 270, "on_ground": False},
         ]
         payload = tracker.build_cache_payload(
-            [isolated_ping, real_flight], dt(0) + timedelta(minutes=120)
+            "N8382A", [isolated_ping, real_flight], dt(0) + timedelta(minutes=120)
         )
         self.assertEqual(len(payload["historical_flights"]), 1)
         self.assertEqual(
@@ -255,7 +301,7 @@ class TestBuildCachePayload(unittest.TestCase):
              "altitude_ft": 0, "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
         ]
         sessions.append(isolated_ping)
-        payload = tracker.build_cache_payload(sessions, dt(0) + timedelta(days=1))
+        payload = tracker.build_cache_payload("N8382A", sessions, dt(0) + timedelta(days=1))
         self.assertEqual(len(payload["historical_flights"]), 5)
         for flight in payload["historical_flights"]:
             self.assertEqual(len(flight["trail"]), 2)

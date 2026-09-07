@@ -26,22 +26,35 @@ for every column (e.g. `status` vs `status_label` vs `emphasis`, `gate`'s
 final-hour-only population) — visible via `\d+ flights` in `psql`, not just
 in this README.
 
-### N8382A tracker (second tab)
+### Aircraft trackers (XS / TS tabs)
 
-A second dashboard tab tracks a single specific tail number, N8382A, on a
-live Leaflet map. `fetch/n8382a-tracker-fetch.py` polls the OpenSky Network
-`/states/all` API every minute (via the `n8382a-tracker-fetch.timer` systemd
-unit — a second, independent timer from the main board's 7-minute one),
-upserts position pings into the same `flights` database (table
-`aircraft_positions`, PostGIS geography column), derives flight sessions at
-query time (a >10 minute gap between pings starts a new session), and
-atomically rewrites its own JSON cache
-(`www/cou_flights/n8382a.json`). A second `command_line` sensor in
-`ha/packages/cou_flights.yaml` (`sensor.n8382a_tracker`) exposes that cache
-to HA; the map itself is rendered by a custom Lovelace card
+Two more dashboard tabs each track a specific tail number (N8382A "XS",
+N621MM "TS") on a live Leaflet map. `fetch/aircraft-tracker-fetch.py` takes
+one or more tail numbers as CLI arguments and, in a single run, polls the
+OpenSky Network `/states/all` API for each (via the
+`aircraft-tracker-fetch.timer` systemd unit — a second, independent timer
+from the main board's 7-minute one, still 1-minute interval; which aircraft
+get tracked is controlled by the args baked into that unit's `ExecStart`,
+currently `N8382A N621MM`), upserts position pings into the same `flights`
+database (table `aircraft_positions`, PostGIS geography column), derives
+flight sessions at query time per aircraft (a >10 minute gap between pings
+starts a new session), and atomically rewrites each aircraft's own JSON
+cache (`www/cou_flights/<tail_lowercased>.json`). One aircraft's OpenSky/DB
+failure is logged and the run continues to the others. A `command_line`
+sensor per aircraft in `ha/packages/cou_flights.yaml`
+(`sensor.n8382a_tracker`, `sensor.n621mm_tracker`) exposes each cache to HA;
+each tab renders its aircraft with the same custom Lovelace card
 (`ha/www/community/mandi-aircraft-tracker/mandi-aircraft-tracker-card.js`,
-vendored Leaflet, no HACS dependency) showing the current in-flight trail
-plus up to 5 most-recent past flights, faded by recency.
+vendored Leaflet, no HACS dependency, parameterized by `entity`) showing the
+current in-flight trail plus up to 5 most-recent past flights, faded by
+recency.
+
+Adding a third aircraft: add its tail number → ICAO24 mapping to
+`TAIL_TO_ICAO24` in `fetch/aircraft-tracker-fetch.py`, add its tail number to
+the deployed `aircraft-tracker-fetch.service`'s `ExecStart` args, add a
+matching `command_line` sensor + recorder exclusion in
+`ha/packages/cou_flights.yaml`, and add a Lovelace view in
+`ha/lovelace/cou_flights.yaml` pointing at that sensor.
 
 OpenSky requires its own OAuth2 client credentials (separate from anything
 else this repo uses) — free to create at

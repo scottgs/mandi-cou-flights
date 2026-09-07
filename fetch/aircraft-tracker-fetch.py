@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
-"""Track tail number N8382A via the OpenSky Network API: poll its current
-state, upsert position pings into the `flights` PostgreSQL/PostGIS database
-(table `aircraft_positions`), derive flight sessions at query time, and
-atomically rewrite the JSON cache Home Assistant reads
-($HA_WWW_DIR/cou_flights/n8382a.json).
+"""Track one or more aircraft via the OpenSky Network API: for each tail
+number given on the command line, poll its current state, upsert position
+pings into the `flights` PostgreSQL/PostGIS database (table
+`aircraft_positions`), derive flight sessions at query time, and
+atomically rewrite that aircraft's own JSON cache Home Assistant reads
+($HA_WWW_DIR/cou_flights/<tail_lowercased>.json).
+
+One shared bearer token is fetched once per run and reused across every
+aircraft in the list; each aircraft is otherwise processed independently
+-- one aircraft's OpenSky/DB failure is logged and the run continues to
+the next tail number rather than aborting the whole run.
 
 Design/rationale: docs/superpowers/specs/2026-09-06-aircraft-tracker-design.md
+(original single-aircraft design) and
+docs/superpowers/specs/2026-09-07-multi-aircraft-tracking-design.md
+(multi-aircraft generalization, including the real timing profile behind
+keeping the 1-minute timer interval).
 
-Run standalone to test: python3 n8382a-tracker-fetch.py
-Runs on a schedule via the n8382a-tracker-fetch.timer systemd unit.
+Run standalone to test: python3 aircraft-tracker-fetch.py N8382A N621MM
+Runs on a schedule via the aircraft-tracker-fetch.timer systemd unit,
+which bakes the tracked tail numbers into its ExecStart args.
 """
 import json
 import os
@@ -22,8 +33,15 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 
-ICAO24 = "ab78b1"
-TAIL_NUMBER = "N8382A"
+# Tail number -> ICAO24/Mode-S hex. Permanent reference data for each
+# tracked aircraft, not deployment config -- which aircraft actually get
+# *tracked* on a given run is controlled by the CLI args (see main()),
+# not by what's present in this dict.
+TAIL_TO_ICAO24 = {
+    "N8382A": "ab78b1",
+    "N621MM": "a81b13",
+}
+
 TZ = ZoneInfo("America/Chicago")
 
 # Gap between consecutive position pings that marks a new flight session,
@@ -43,9 +61,9 @@ STATES_URL = "https://opensky-network.org/api/states/all"
 METERS_TO_FEET = 3.28084
 MPS_TO_KNOTS = 1.94384
 
-CACHE_PATH = os.path.join(
+CACHE_DIR = os.path.join(
     os.path.expanduser(os.environ.get("HA_WWW_DIR", "~/homeassistant/config/www")),
-    "cou_flights", "n8382a.json",
+    "cou_flights",
 )
 
 DB_DSN = {
@@ -54,6 +72,24 @@ DB_DSN = {
     "user": os.environ.get("COU_FLIGHTS_DB_USER", "cou_flights"),
     "password": os.environ["COU_FLIGHTS_DB_PASSWORD"],
 }
+
+
+def resolve_aircraft(tail_numbers):
+    """tail_numbers: list of tail number strings from the command line.
+    Returns a list of (tail_number, icao24) pairs, preserving input order.
+    Raises ValueError naming every unrecognized tail number at once (not
+    just the first) if any aren't in TAIL_TO_ICAO24."""
+    unknown = [t for t in tail_numbers if t not in TAIL_TO_ICAO24]
+    if unknown:
+        raise ValueError(
+            f"unknown tail number(s): {', '.join(unknown)} "
+            f"(known: {', '.join(sorted(TAIL_TO_ICAO24))})"
+        )
+    return [(t, TAIL_TO_ICAO24[t]) for t in tail_numbers]
+
+
+def cache_path_for(tail_number):
+    return os.path.join(CACHE_DIR, f"{tail_number.lower()}.json")
 
 
 def parse_state_vector(vector):
@@ -118,7 +154,7 @@ def _session_summary(session):
     }
 
 
-def build_cache_payload(sessions, now):
+def build_cache_payload(tail_number, sessions, now):
     status, current_session = determine_status(sessions, now)
     remaining = sessions[:-1] if current_session is not None else sessions
     # A session with a single isolated ping can't draw a trail line and the
@@ -133,7 +169,7 @@ def build_cache_payload(sessions, now):
 
     payload = {
         "fetched_at": now.astimezone(TZ).isoformat(),
-        "tail_number": TAIL_NUMBER,
+        "tail_number": tail_number,
         "status": status,
         "historical_flights": [_session_summary(s) for s in historical],
     }
@@ -160,9 +196,9 @@ def get_bearer_token():
         return json.load(resp)["access_token"]
 
 
-def query_state(token):
+def query_state(token, icao24):
     req = urllib.request.Request(
-        f"{STATES_URL}?icao24={ICAO24}",
+        f"{STATES_URL}?icao24={icao24}",
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
@@ -195,11 +231,11 @@ ORDER BY recorded_at ASC
 """
 
 
-def upsert_position(conn, state, fetched_at):
+def upsert_position(conn, tail_number, icao24, state, fetched_at):
     with conn.cursor() as cur:
         cur.execute(UPSERT_SQL, {
-            "tail_number": TAIL_NUMBER,
-            "icao24": ICAO24,
+            "tail_number": tail_number,
+            "icao24": icao24,
             "lon": state["lon"],
             "lat": state["lat"],
             "altitude_ft": state["altitude_ft"],
@@ -211,46 +247,69 @@ def upsert_position(conn, state, fetched_at):
         })
 
 
-def query_history(conn):
+def query_history(conn, tail_number):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(HISTORY_QUERY, {"tail_number": TAIL_NUMBER})
+        cur.execute(HISTORY_QUERY, {"tail_number": tail_number})
         return [dict(row) for row in cur.fetchall()]
 
 
-def write_cache(payload):
-    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
-    tmp_path = CACHE_PATH + ".tmp"
+def write_cache(cache_path, payload):
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    tmp_path = cache_path + ".tmp"
     with open(tmp_path, "w") as f:
         json.dump(payload, f, indent=2)
-    os.replace(tmp_path, CACHE_PATH)
+    os.replace(tmp_path, cache_path)
+
+
+def track_one_aircraft(token, conn, tail_number, icao24, now):
+    """Runs the full per-aircraft pipeline. Raises on failure -- caller
+    decides whether that aborts the whole run or just this aircraft."""
+    state = query_state(token, icao24)
+    if state is not None:
+        upsert_position(conn, tail_number, icao24, state, now)
+        conn.commit()
+    rows = query_history(conn, tail_number)
+    sessions = split_into_sessions(rows)
+    payload = build_cache_payload(tail_number, sessions, now)
+    write_cache(cache_path_for(tail_number), payload)
+    return payload
 
 
 def main():
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} TAIL_NUMBER [TAIL_NUMBER ...]", file=sys.stderr)
+        return 1
+    try:
+        aircraft = resolve_aircraft(sys.argv[1:])
+    except ValueError as e:
+        print(f"ERROR {e}", file=sys.stderr)
+        return 1
+
     now = datetime.now(TZ)
     try:
         token = get_bearer_token()
-        state = query_state(token)
     except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as e:
-        print(f"ERROR OpenSky request failed: {e}", file=sys.stderr)
+        print(f"ERROR failed to get OpenSky bearer token: {e}", file=sys.stderr)
         return 1
 
     conn = psycopg2.connect(**DB_DSN)
+    any_failed = False
     try:
-        if state is not None:
-            upsert_position(conn, state, now)
-            conn.commit()
-        rows = query_history(conn)
+        for tail_number, icao24 in aircraft:
+            try:
+                payload = track_one_aircraft(token, conn, tail_number, icao24, now)
+            except (urllib.error.URLError, TimeoutError, ValueError, psycopg2.Error) as e:
+                print(f"ERROR {tail_number}: {e}", file=sys.stderr)
+                any_failed = True
+                continue
+            print(
+                f"OK {tail_number} status={payload['status']} "
+                f"historical_flights={len(payload['historical_flights'])} at {now.isoformat()}"
+            )
     finally:
         conn.close()
 
-    sessions = split_into_sessions(rows)
-    payload = build_cache_payload(sessions, now)
-    write_cache(payload)
-    print(
-        f"OK status={payload['status']} "
-        f"historical_flights={len(payload['historical_flights'])} at {now.isoformat()}"
-    )
-    return 0
+    return 1 if any_failed else 0
 
 
 if __name__ == "__main__":

@@ -93,11 +93,11 @@ sudo cp "$SCRIPT_DIR/systemd/cou-flights-fetch.timer" /etc/systemd/system/cou-fl
 sed -e "s|__INSTALL_USER__|${INSTALL_USER}|g" \
     -e "s|__HA_WWW_DIR__|${HA_CONFIG_DIR}/www|g" \
     -e "s|__REPO_DIR__|${REPO_DIR}|g" \
-    "$SCRIPT_DIR/systemd/n8382a-tracker-fetch.service" | sudo tee /etc/systemd/system/n8382a-tracker-fetch.service >/dev/null
-sudo cp "$SCRIPT_DIR/systemd/n8382a-tracker-fetch.timer" /etc/systemd/system/n8382a-tracker-fetch.timer
+    "$SCRIPT_DIR/systemd/aircraft-tracker-fetch.service" | sudo tee /etc/systemd/system/aircraft-tracker-fetch.service >/dev/null
+sudo cp "$SCRIPT_DIR/systemd/aircraft-tracker-fetch.timer" /etc/systemd/system/aircraft-tracker-fetch.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now cou-flights-fetch.timer
-sudo systemctl enable --now n8382a-tracker-fetch.timer
+sudo systemctl enable --now aircraft-tracker-fetch.timer
 
 echo "== 4/5: HA dashboard + package files =="
 mkdir -p "${HA_CONFIG_DIR}/www/cou_flights"

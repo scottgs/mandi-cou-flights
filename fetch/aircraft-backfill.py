@@ -2,7 +2,7 @@
 """One-time historical backfill: pull an aircraft's real past flights from
 the OpenSky Network's historical REST endpoints (/flights/aircraft,
 /tracks) and upsert them into the same `aircraft_positions` table the live
-n8382a-tracker-fetch.py writes to. Not run on a schedule -- invoke by hand
+aircraft-tracker-fetch.py writes to. Not run on a schedule -- invoke by hand
 per aircraft, as needed. Safe to re-run (idempotent via the same
 ON CONFLICT (tail_number, recorded_at) DO NOTHING pattern the live script
 uses).
@@ -111,8 +111,17 @@ def fetch_flights_for_range(token, icao24, begin, end):
         f"{FLIGHTS_URL}?{params}",
         headers={"Authorization": f"Bearer {token}"},
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as e:
+        # OpenSky returns HTTP 404 (not 200 with an empty list) when a
+        # range genuinely has zero flights -- confirmed live against a
+        # same-day range for a grounded aircraft. Any other status is a
+        # real failure and should propagate.
+        if e.code == 404:
+            return []
+        raise
 
 
 def fetch_track(token, icao24, time_):
