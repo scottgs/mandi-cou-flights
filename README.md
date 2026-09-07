@@ -26,14 +26,44 @@ for every column (e.g. `status` vs `status_label` vs `emphasis`, `gate`'s
 final-hour-only population) — visible via `\d+ flights` in `psql`, not just
 in this README.
 
+### N8382A tracker (second tab)
+
+A second dashboard tab tracks a single specific tail number, N8382A, on a
+live Leaflet map. `fetch/n8382a-tracker-fetch.py` polls the OpenSky Network
+`/states/all` API every minute (via the `n8382a-tracker-fetch.timer` systemd
+unit — a second, independent timer from the main board's 7-minute one),
+upserts position pings into the same `flights` database (table
+`aircraft_positions`, PostGIS geography column), derives flight sessions at
+query time (a >10 minute gap between pings starts a new session), and
+atomically rewrites its own JSON cache
+(`www/cou_flights/n8382a.json`). A second `command_line` sensor in
+`ha/packages/cou_flights.yaml` (`sensor.n8382a_tracker`) exposes that cache
+to HA; the map itself is rendered by a custom Lovelace card
+(`ha/www/community/mandi-aircraft-tracker/mandi-aircraft-tracker-card.js`,
+vendored Leaflet, no HACS dependency) showing the current in-flight trail
+plus up to 5 most-recent past flights, faded by recency.
+
+OpenSky requires its own OAuth2 client credentials (separate from anything
+else this repo uses) — free to create at
+https://opensky-network.org/my-opensky/account. Both `OPENSKY_CLIENT_ID` and
+`OPENSKY_CLIENT_SECRET` go in the same `/etc/mandi/cou-flights.env` file as
+`COU_FLIGHTS_DB_PASSWORD` (see `.env.example`); `install.sh` prompts for
+each independently if missing (see "Install" below).
+
 ## Prerequisites
 
-- PostgreSQL reachable as `localhost` (no extensions required — plain
-  tables only, unlike the companion `mandi-como-911` repo which needs
-  PostGIS).
+- PostgreSQL reachable as `localhost`, with the `postgis` extension
+  available (already installed on this Postgres instance for the
+  companion `mandi-como-911` repo's database; on a fresh host, the
+  package is typically named `postgresql-<version>-postgis-3`, e.g.
+  `postgresql-16-postgis-3`, and enabled per-database with
+  `CREATE EXTENSION postgis;`).
 - Home Assistant with `command_line` sensor support (core, no HACS
   dependency).
 - Python 3 with `psycopg2` available to the install user.
+- An OpenSky Network account with an OAuth2 API client (client ID +
+  secret) if you want the N8382A tracker tab — see above. The main
+  COU Flights board doesn't need this.
 
 ## Install
 
@@ -51,8 +81,12 @@ manual step: registering the dashboard in `configuration.yaml` (see the
 script's own output for the exact YAML block), since that file isn't owned
 by this repo.
 
-First run prompts for `COU_FLIGHTS_DB_PASSWORD` if `/etc/mandi/cou-flights.env`
-doesn't already exist; see `.env.example`.
+`install.sh` checks each required key (`COU_FLIGHTS_DB_PASSWORD`,
+`OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET`) independently in
+`/etc/mandi/cou-flights.env` and only prompts for the ones that are
+missing — so it's safe to re-run after adding a new key to that file by
+hand, or to run for the first time with some keys already present (e.g.
+from a sibling repo's earlier setup); see `.env.example`.
 
 ## Uninstall
 

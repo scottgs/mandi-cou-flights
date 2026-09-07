@@ -133,3 +133,11 @@ views:
               {{ render_table(flights_tomorrow, false, "No departures scheduled") }}
               {%- endif %}
               </font>
+
+  - title: N8382A
+    path: n8382a-tracker
+    icon: mdi:airplane-marker
+    type: panel
+    cards:
+      - type: custom:mandi-aircraft-tracker-card
+        entity: sensor.n8382a_tracker

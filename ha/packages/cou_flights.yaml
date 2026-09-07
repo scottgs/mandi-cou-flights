@@ -1,7 +1,7 @@
 # COU (Columbia Regional Airport) Flights package
 #
-# Data comes from ~/MANDI/cou-flights-fetch.py -- a host-side script run every
-# 5 minutes by the cou-flights-fetch.timer systemd unit. It scrapes flycou.com,
+# Data comes from fetch/cou-flights-fetch.py -- a host-side script run every
+# 7 minutes by the cou-flights-fetch.timer systemd unit. It scrapes flycou.com,
 # normalizes/validates the board, and atomically writes
 # ~/homeassistant/config/www/cou_flights/flights.json, which is already inside
 # this container's bind-mounted /config, so no extra volume is needed here.
@@ -29,3 +29,32 @@ command_line:
         - departures_today
         - departures_tomorrow
         - db_stats
+
+  - sensor:
+      name: "N8382A Tracker"
+      unique_id: n8382a_tracker
+      command: "cat /config/www/cou_flights/n8382a.json"
+      scan_interval: 60
+      value_template: "{{ value_json.fetched_at }}"
+      json_attributes:
+        - fetched_at
+        - tail_number
+        - status
+        - current_trail
+        - current
+        - historical_flights
+
+# sensor.n8382a_tracker's attributes carry the full trail/historical_flights
+# blob -- tiny today with no real flight history yet, but it will grow
+# substantially once real flights accumulate, and HA's recorder would
+# otherwise write that whole blob to its database on every ~60s poll.
+# There's no core-recorder mechanism to exclude only specific attributes of
+# an entity via YAML (attribute-level exclusion is an integration-internal
+# API, not a package/recorder config option) -- entity-level exclusion is
+# the only lever available here, so the entity is excluded outright. Its
+# bare state (fetched_at) isn't independently useful for a history graph
+# without the attributes anyway.
+recorder:
+  exclude:
+    entities:
+      - sensor.n8382a_tracker

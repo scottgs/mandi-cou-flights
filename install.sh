@@ -33,16 +33,53 @@ SQL
   echo "flights database provisioned (or already present -- schema.sql is idempotent)"
 }
 
+register_lovelace_resource() {
+  local ha_config_dir="$1"
+  local base_url="$2"
+  local resource_url="$3"
+  python3 - "${ha_config_dir}/.storage/lovelace_resources" "$base_url" "$resource_url" <<'PYEOF'
+import json, os, sys, uuid
+
+path, base_url, url = sys.argv[1], sys.argv[2], sys.argv[3]
+if os.path.exists(path):
+    with open(path) as f:
+        data = json.load(f)
+else:
+    # Fresh HA host in YAML-dashboard mode that has never had any
+    # UI-managed Lovelace resource -- this file doesn't exist yet.
+    # Start with the minimal valid lovelace_resources storage structure.
+    data = {"version": 1, "minor_version": 1, "key": "lovelace_resources", "data": {"items": []}}
+items = data["data"]["items"]
+if any(i["url"] == url for i in items):
+    print(f"lovelace resource already registered: {url}")
+else:
+    before = len(items)
+    items[:] = [i for i in items if i["url"].split("?")[0] != base_url]
+    removed = before - len(items)
+    items.append({"id": uuid.uuid4().hex, "url": url, "type": "module"})
+    suffix = f" (replaced {removed} stale version)" if removed else ""
+    print(f"registered lovelace resource: {url}{suffix}")
+    with open(path, "w") as f:
+        json.dump(data, f)
+PYEOF
+}
+
+ensure_env_var() {
+  local key="$1" prompt_text="$2"
+  if ! sudo grep -q "^${key}=" /etc/mandi/cou-flights.env 2>/dev/null; then
+    read -rsp "${prompt_text}: " value; echo
+    echo "${key}=${value}" | sudo tee -a /etc/mandi/cou-flights.env >/dev/null
+  fi
+}
+
 echo "== 1/5: env file =="
 sudo install -d -m 0755 /etc/mandi
-if [ ! -f /etc/mandi/cou-flights.env ]; then
-  read -rsp "COU_FLIGHTS_DB_PASSWORD for new role 'cou_flights': " DB_PASSWORD; echo
-  echo "COU_FLIGHTS_DB_PASSWORD=${DB_PASSWORD}" | sudo tee /etc/mandi/cou-flights.env >/dev/null
-  sudo chmod 0600 /etc/mandi/cou-flights.env
-else
-  DB_PASSWORD="$(sudo grep -oP '(?<=COU_FLIGHTS_DB_PASSWORD=).*' /etc/mandi/cou-flights.env)"
-  echo "/etc/mandi/cou-flights.env already exists, reusing its password"
-fi
+sudo touch /etc/mandi/cou-flights.env
+sudo chmod 0600 /etc/mandi/cou-flights.env
+ensure_env_var COU_FLIGHTS_DB_PASSWORD "COU_FLIGHTS_DB_PASSWORD for new role 'cou_flights'"
+ensure_env_var OPENSKY_CLIENT_ID "OPENSKY_CLIENT_ID (from https://opensky-network.org/my-opensky/account)"
+ensure_env_var OPENSKY_CLIENT_SECRET "OPENSKY_CLIENT_SECRET (from https://opensky-network.org/my-opensky/account)"
+DB_PASSWORD="$(sudo grep -oP '(?<=COU_FLIGHTS_DB_PASSWORD=).*' /etc/mandi/cou-flights.env)"
 
 echo "== 2/5: database =="
 provision_db "$DB_PASSWORD"
@@ -53,11 +90,23 @@ sed -e "s|__INSTALL_USER__|${INSTALL_USER}|g" \
     -e "s|__REPO_DIR__|${REPO_DIR}|g" \
     "$SCRIPT_DIR/systemd/cou-flights-fetch.service" | sudo tee /etc/systemd/system/cou-flights-fetch.service >/dev/null
 sudo cp "$SCRIPT_DIR/systemd/cou-flights-fetch.timer" /etc/systemd/system/cou-flights-fetch.timer
+sed -e "s|__INSTALL_USER__|${INSTALL_USER}|g" \
+    -e "s|__HA_WWW_DIR__|${HA_CONFIG_DIR}/www|g" \
+    -e "s|__REPO_DIR__|${REPO_DIR}|g" \
+    "$SCRIPT_DIR/systemd/n8382a-tracker-fetch.service" | sudo tee /etc/systemd/system/n8382a-tracker-fetch.service >/dev/null
+sudo cp "$SCRIPT_DIR/systemd/n8382a-tracker-fetch.timer" /etc/systemd/system/n8382a-tracker-fetch.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now cou-flights-fetch.timer
+sudo systemctl enable --now n8382a-tracker-fetch.timer
 
 echo "== 4/5: HA dashboard + package files =="
 mkdir -p "${HA_CONFIG_DIR}/www/cou_flights"
+mkdir -p "${HA_CONFIG_DIR}/www/community/mandi-aircraft-tracker"
+cp "$SCRIPT_DIR/ha/www/community/mandi-aircraft-tracker/"*.js "$SCRIPT_DIR/ha/www/community/mandi-aircraft-tracker/"*.css \
+  "${HA_CONFIG_DIR}/www/community/mandi-aircraft-tracker/"
+CARD_JS_BASE_URL="/local/community/mandi-aircraft-tracker/mandi-aircraft-tracker-card.js"
+CARD_JS_HASH="$(sha256sum "$SCRIPT_DIR/ha/www/community/mandi-aircraft-tracker/mandi-aircraft-tracker-card.js" | cut -c1-8)"
+register_lovelace_resource "${HA_CONFIG_DIR}" "${CARD_JS_BASE_URL}" "${CARD_JS_BASE_URL}?v=${CARD_JS_HASH}"
 cp "$SCRIPT_DIR/ha/lovelace/cou_flights.yaml" "${HA_CONFIG_DIR}/lovelace/cou_flights.yaml"
 cp "$SCRIPT_DIR/ha/packages/cou_flights.yaml" "${HA_CONFIG_DIR}/packages/cou_flights.yaml"
 
