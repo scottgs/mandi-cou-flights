@@ -9,12 +9,25 @@ const BOUNDS_PADDING_MILES = 2;
 
 const CURRENT_COLOR_LIGHT = "#2a78d6";
 const CURRENT_COLOR_DARK = "#3987e5";
-const HISTORICAL_COLOR = "#898781";
-// Recency-graded opacity for up to 5 historical trails, most-recent-first.
-// See docs/superpowers/specs/2026-09-06-aircraft-tracker-design.md for why
-// this replaced 5 distinct hues (failed the project's CVD/normal-vision
-// palette validator under an all-pairs-overlapping scenario).
-const HISTORICAL_OPACITY_STEPS = [0.85, 0.70, 0.55, 0.45, 0.35];
+const CURRENT_WEIGHT = 4;
+const HISTORICAL_WEIGHT = 3;
+// Recency-graded single-hue blue ramp for historical trails, most-recent
+// first (index 0 = deepest/strongest blue = most recent flight). A flight
+// older than the last step reuses that step (see the Math.min clamp below)
+// rather than growing the array -- there's no dashboard value in more than
+// 5 visually distinct steps. This is an "ordinal" ramp per the dataviz
+// skill (one hue, monotone lightness, not a categorical hue set) --
+// validated via validate_palette.js --ordinal --mode light (map tiles are
+// always the light OSM style regardless of HA theme, so one ramp covers
+// both): lightness monotone, adjacent steps >=0.06 apart, single hue
+// (23° spread), light end (#6baed6) at 2.36:1 vs surface -- all PASS.
+// Previously a flat gray (#898781) + opacity taper; opacity dropped in
+// favor of full-strength color doing the recency encoding, since a
+// translucent line reads as weaker, not "older", once you're looking for a
+// bold color ramp specifically (see docs/superpowers/specs/2026-09-06-aircraft-tracker-design.md
+// for why 5 distinct *hues* was rejected -- this is one hue, not five, so
+// that finding doesn't apply here).
+const HISTORICAL_COLOR_STEPS = ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6baed6"];
 
 function ensureLeafletScriptLoaded() {
   if (window.L) return Promise.resolve();
@@ -228,15 +241,15 @@ class MandiAircraftTrackerCard extends HTMLElement {
     const allPoints = [];
 
     // Historical trails first (drawn underneath), most-recent-first per the
-    // cache shape -- index 0 gets the highest (least faded) opacity step.
+    // cache shape -- index 0 gets the deepest (most recent) blue step.
     historicalFlights.forEach((flight, index) => {
       const points = flight.trail || [];
       if (points.length < 2) return; // a 1-point "trail" can't draw a line
-      const opacity = HISTORICAL_OPACITY_STEPS[Math.min(index, HISTORICAL_OPACITY_STEPS.length - 1)];
+      const color = HISTORICAL_COLOR_STEPS[Math.min(index, HISTORICAL_COLOR_STEPS.length - 1)];
       const line = window.L.polyline(points, {
-        color: HISTORICAL_COLOR,
-        weight: 2,
-        opacity,
+        color,
+        weight: HISTORICAL_WEIGHT,
+        opacity: 1,
       });
       line.bindTooltip(
         `${index + 1} flight${index === 0 ? "" : "s"} ago — ` +
@@ -270,7 +283,7 @@ class MandiAircraftTrackerCard extends HTMLElement {
       if (currentTrail.length >= 2) {
         const line = window.L.polyline(currentTrail, {
           color: currentColor,
-          weight: 2,
+          weight: CURRENT_WEIGHT,
           opacity: 1,
         });
         line.addTo(this._trailsLayer);

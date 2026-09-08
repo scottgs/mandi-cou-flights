@@ -178,11 +178,12 @@ class TestBuildCachePayload(unittest.TestCase):
         self.assertEqual(payload["current"]["ground_speed_kt"], 105)
         self.assertEqual(payload["current"]["heading_deg"], 270)
 
-    def test_caps_at_five_most_recent_historical_most_recent_first(self):
+    def test_floor_of_five_when_none_within_24h(self):
         # 7 sessions, 20 minutes apart (each gap > SESSION_GAP, so each is its
-        # own session). Built via dt(0) + timedelta(...) rather than dt(i*20)
-        # directly, since dt()'s minute argument doesn't roll over into the
-        # hour past 59.
+        # own session), all clustered near dt(0). `now` is pushed 3 days out
+        # so none of them fall within the trailing 24h -- MIN_HISTORICAL_FLIGHTS
+        # is a floor, not a cap, so exactly 5 are still kept, most-recent-first,
+        # reaching back past the 24h window to do it.
         sessions = []
         for i in range(7):
             start = dt(0) + timedelta(minutes=i * 20)
@@ -192,8 +193,8 @@ class TestBuildCachePayload(unittest.TestCase):
                 {"recorded_at": start + timedelta(minutes=1), "lat": 39.05, "lon": -94.55,
                  "altitude_ft": 0, "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
             ])
-        payload = shared.build_cache_payload("N8382A", sessions, dt(0) + timedelta(days=1))  # everything stale -> grounded
-        self.assertEqual(len(payload["historical_flights"]), shared.MAX_HISTORICAL_FLIGHTS)
+        payload = shared.build_cache_payload("N8382A", sessions, dt(0) + timedelta(days=3))
+        self.assertEqual(len(payload["historical_flights"]), shared.MIN_HISTORICAL_FLIGHTS)
         # Most recent first: session 6 (i=6) before session 5 (i=5), etc. --
         # top 5 of 7, oldest two (i=0,1) excluded.
         expected_starts = [
@@ -202,6 +203,50 @@ class TestBuildCachePayload(unittest.TestCase):
         ]
         actual_starts = [f["started_at"] for f in payload["historical_flights"]]
         self.assertEqual(actual_starts, expected_starts)
+
+    def test_keeps_more_than_five_when_more_than_five_within_24h(self):
+        # 8 sessions, 2 hours apart -- all fall within the trailing 24h of
+        # `now`. Since 8 > MIN_HISTORICAL_FLIGHTS, all 8 must be kept, not
+        # capped at 5.
+        sessions = []
+        for i in range(8):
+            start = dt(0) + timedelta(hours=i * 2)
+            sessions.append([
+                {"recorded_at": start, "lat": 39.0, "lon": -94.5, "altitude_ft": 0,
+                 "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
+                {"recorded_at": start + timedelta(minutes=1), "lat": 39.05, "lon": -94.55,
+                 "altitude_ft": 0, "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
+            ])
+        now = dt(0) + timedelta(hours=15)  # last session ends ~1h before now
+        payload = shared.build_cache_payload("N8382A", sessions, now)
+        self.assertEqual(len(payload["historical_flights"]), 8)
+
+    def test_floor_of_five_when_fewer_than_five_within_24h(self):
+        # 4 old sessions (well beyond 24h before `now`) plus 2 recent ones
+        # (within 24h). Only 2 qualify for the 24h window, but the
+        # MIN_HISTORICAL_FLIGHTS floor of 5 still reaches back past the
+        # cutoff to fill up to 5 total.
+        now = dt(0) + timedelta(days=3)
+        old_sessions = []
+        for i in range(4):
+            start = dt(0) + timedelta(minutes=i * 20)
+            old_sessions.append([
+                {"recorded_at": start, "lat": 39.0, "lon": -94.5, "altitude_ft": 0,
+                 "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
+                {"recorded_at": start + timedelta(minutes=1), "lat": 39.05, "lon": -94.55,
+                 "altitude_ft": 0, "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
+            ])
+        recent_sessions = []
+        for i in range(2):
+            start = now - timedelta(hours=1) + timedelta(minutes=i * 20)
+            recent_sessions.append([
+                {"recorded_at": start, "lat": 39.0, "lon": -94.5, "altitude_ft": 0,
+                 "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
+                {"recorded_at": start + timedelta(minutes=1), "lat": 39.05, "lon": -94.55,
+                 "altitude_ft": 0, "ground_speed_kt": 0, "heading_deg": 0, "on_ground": True},
+            ])
+        payload = shared.build_cache_payload("N8382A", old_sessions + recent_sessions, now)
+        self.assertEqual(len(payload["historical_flights"]), 5)
 
     def test_recorded_timestamps_display_in_central_time_not_utc(self):
         # Regression guard for the exact bug already hit once in
@@ -223,7 +268,7 @@ class TestBuildCachePayload(unittest.TestCase):
         # A lone isolated ping (>10min from anything else, e.g. one blip
         # during climb-out before ADS-B ground coverage drops) can't draw a
         # trail line -- the card silently skips it (points.length < 2). It
-        # must not consume one of the MAX_HISTORICAL_FLIGHTS cap slots that
+        # must not consume one of the MIN_HISTORICAL_FLIGHTS floor slots that
         # a real multi-point flight should get instead.
         isolated_ping = [
             {"recorded_at": dt(0), "lat": 39.0, "lon": -94.5, "altitude_ft": 0,

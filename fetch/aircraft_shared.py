@@ -50,7 +50,12 @@ SESSION_GAP = timedelta(minutes=10)
 # "flying" claims that are 30+ minutes stale, which is worse).
 FRESH_THRESHOLD = timedelta(minutes=3)
 
-MAX_HISTORICAL_FLIGHTS = 5
+# Historical flights shown: every flight in the trailing HISTORICAL_LOOKBACK,
+# or the MIN_HISTORICAL_FLIGHTS most recent -- whichever count is larger. So
+# this is a floor, not a cap: a busy 24h period can show more than 5, while a
+# quiet one still guarantees at least 5 by reaching further back.
+MIN_HISTORICAL_FLIGHTS = 5
+HISTORICAL_LOOKBACK = timedelta(hours=24)
 
 CACHE_DIR = os.path.join(
     os.path.expanduser(os.environ.get("HA_WWW_DIR", "~/homeassistant/config/www")),
@@ -126,13 +131,16 @@ def build_cache_payload(tail_number, sessions, now):
     remaining = sessions[:-1] if current_session is not None else sessions
     # A session with a single isolated ping can't draw a trail line and the
     # card silently skips rendering it -- filter those out BEFORE applying
-    # the MAX_HISTORICAL_FLIGHTS cap so a 1-row session never consumes a
-    # slot that a real multi-point flight should have gotten. This only
-    # applies to historical sessions: a single-point *current* session must
-    # still count as "flying" and show a marker (handled above via
+    # the historical-flight floor so a 1-row session never consumes a slot
+    # that a real multi-point flight should have gotten. This only applies
+    # to historical sessions: a single-point *current* session must still
+    # count as "flying" and show a marker (handled above via
     # determine_status, untouched here).
     remaining = [s for s in remaining if len(s) >= 2]
-    historical = list(reversed(remaining[-MAX_HISTORICAL_FLIGHTS:]))
+    cutoff = now - HISTORICAL_LOOKBACK
+    within_lookback = sum(1 for s in remaining if s[-1]["recorded_at"] >= cutoff)
+    keep_count = max(MIN_HISTORICAL_FLIGHTS, within_lookback)
+    historical = list(reversed(remaining[-keep_count:]))
 
     payload = {
         "fetched_at": now.astimezone(TZ).isoformat(),
