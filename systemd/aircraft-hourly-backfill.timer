@@ -1,0 +1,9 @@
+[Unit]
+Description=Run aircraft-hourly-backfill.service every hour, all 24 hours
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

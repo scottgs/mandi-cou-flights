@@ -29,30 +29,48 @@ in this README.
 ### Aircraft trackers (XS / TS tabs)
 
 Two more dashboard tabs each track a specific tail number (N8382A "XS",
-N621MM "TS") on a live Leaflet map. `fetch/aircraft-tracker-fetch.py` takes
-one or more tail numbers as CLI arguments and, in a single run, polls the
-OpenSky Network `/states/all` API for each (via the
-`aircraft-tracker-fetch.timer` systemd unit — a second, independent timer
-from the main board's 7-minute one, still 1-minute interval; which aircraft
-get tracked is controlled by the args baked into that unit's `ExecStart`,
-currently `N8382A N621MM`), upserts position pings into the same `flights`
-database (table `aircraft_positions`, PostGIS geography column), derives
-flight sessions at query time per aircraft (a >10 minute gap between pings
-starts a new session), and atomically rewrites each aircraft's own JSON
-cache (`www/cou_flights/<tail_lowercased>.json`). One aircraft's OpenSky/DB
-failure is logged and the run continues to the others. A `command_line`
-sensor per aircraft in `ha/packages/cou_flights.yaml`
-(`sensor.n8382a_tracker`, `sensor.n621mm_tracker`) exposes each cache to HA;
-each tab renders its aircraft with the same custom Lovelace card
+N621MM "TS") on a live Leaflet map, fed by two independent, complementary
+jobs that both write to the same PostGIS table (`aircraft_positions`) and
+the same per-aircraft JSON caches (`www/cou_flights/<tail_lowercased>.json`),
+via shared session-derivation logic in `fetch/aircraft_shared.py`:
+
+- **`fetch/aircraft-tracker-fetch.py`** (live poller) takes one or more
+  tail numbers as CLI arguments and, in a single run, polls OpenSky's
+  `/states/all` for all of them in one shared request (OpenSky bills that
+  endpoint the same credit cost regardless of icao24-filter count, so this
+  keeps credit usage flat as the tracked-aircraft list grows). Runs every
+  minute, but only 8a-8p America/Chicago, via
+  `aircraft-tracker-fetch.timer`'s native `OnCalendar=*-*-* 08..19:*:00
+  America/Chicago` — the hours someone would actually be flying.
+- **`fetch/aircraft-hourly-backfill.py`** (hourly catch-up) runs every
+  hour, all 24 hours a day, via `aircraft-hourly-backfill.timer`
+  (`OnCalendar=hourly`) — pulls the trailing 75 minutes from OpenSky's
+  historical `/flights/aircraft` + `/tracks` endpoints (a separate credit
+  bucket from `/states/all`, so it doesn't compete with the live poller's
+  budget) and upserts any flight found, giving reduced-frequency coverage
+  outside the live window and a safety net if the live poller ever fails.
+
+Both jobs derive flight sessions at query time per aircraft (a >10 minute
+gap between pings starts a new session) and always rewrite each aircraft's
+cache, even when nothing new was found, so `fetched_at` reflects the true
+last-check time. One aircraft's OpenSky/DB failure is logged and the run
+continues to the others. A `command_line` sensor per aircraft in
+`ha/packages/cou_flights.yaml` (`sensor.n8382a_tracker`,
+`sensor.n621mm_tracker`) exposes each cache to HA; each tab renders its
+aircraft with the same custom Lovelace card
 (`ha/www/community/mandi-aircraft-tracker/mandi-aircraft-tracker-card.js`,
 vendored Leaflet, no HACS dependency, parameterized by `entity`) showing the
 current in-flight trail plus up to 5 most-recent past flights, faded by
 recency.
 
+Design/rationale for the 8a-8p + hourly-catch-up split:
+`docs/superpowers/specs/2026-09-08-hourly-backfill-design.md`.
+
 Adding a third aircraft: add its tail number → ICAO24 mapping to
-`TAIL_TO_ICAO24` in `fetch/aircraft-tracker-fetch.py`, add its tail number to
-the deployed `aircraft-tracker-fetch.service`'s `ExecStart` args, add a
-matching `command_line` sensor + recorder exclusion in
+`TAIL_TO_ICAO24` in `fetch/aircraft_shared.py` (used by both jobs), add its
+tail number to both deployed services' `ExecStart` args
+(`aircraft-tracker-fetch.service` and `aircraft-hourly-backfill.service`),
+add a matching `command_line` sensor + recorder exclusion in
 `ha/packages/cou_flights.yaml`, and add a Lovelace view in
 `ha/lovelace/cou_flights.yaml` pointing at that sensor.
 

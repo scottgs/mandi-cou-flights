@@ -1,9 +1,8 @@
 [Unit]
-Description=Run aircraft-tracker-fetch.service every minute
+Description=Run aircraft-tracker-fetch.service every minute, 8a-8p America/Chicago
 
 [Timer]
-OnBootSec=1min
-OnUnitActiveSec=1min
+OnCalendar=*-*-* 08..19:*:00 America/Chicago
 Persistent=true
 
 [Install]

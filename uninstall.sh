@@ -11,8 +11,10 @@ HA_CONFIG_DIR="${1:?Usage: uninstall.sh <ha-config-dir>}"
 echo "== 1/3: systemd =="
 sudo systemctl disable --now cou-flights-fetch.timer || true
 sudo systemctl disable --now aircraft-tracker-fetch.timer || true
+sudo systemctl disable --now aircraft-hourly-backfill.timer || true
 sudo rm -f /etc/systemd/system/cou-flights-fetch.service /etc/systemd/system/cou-flights-fetch.timer
 sudo rm -f /etc/systemd/system/aircraft-tracker-fetch.service /etc/systemd/system/aircraft-tracker-fetch.timer
+sudo rm -f /etc/systemd/system/aircraft-hourly-backfill.service /etc/systemd/system/aircraft-hourly-backfill.timer
 sudo systemctl daemon-reload
 
 echo "== 2/3: HA dashboard + package files =="
