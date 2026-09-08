@@ -196,17 +196,29 @@ def get_bearer_token():
         return json.load(resp)["access_token"]
 
 
-def query_state(token, icao24):
+def query_states(token, icao24_list):
+    """Single /states/all request carrying every tracked aircraft's icao24
+    as a repeated query param. OpenSky bills a states/all request the same
+    number of credits regardless of how many icao24 filters are attached,
+    so batching keeps our daily credit usage flat as the tracked-aircraft
+    list grows -- one request per icao24 (the original per-aircraft
+    design) scales credit usage linearly with aircraft count instead, which
+    is what exhausted the daily quota after N621MM was added alongside
+    N8382A (confirmed live: persistent 429 "Too many requests" with an
+    x-rate-limit-retry-after-seconds header, starting the day call volume
+    doubled). Returns {icao24: parsed_state_or_None}."""
+    params = urllib.parse.urlencode([("icao24", icao24) for icao24 in icao24_list])
     req = urllib.request.Request(
-        f"{STATES_URL}?icao24={icao24}",
+        f"{STATES_URL}?{params}",
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         body = json.load(resp)
-    states = body.get("states")
-    if not states:
-        return None
-    return parse_state_vector(states[0])
+    result = {icao24: None for icao24 in icao24_list}
+    for vector in body.get("states") or []:
+        if vector and vector[0] in result:
+            result[vector[0]] = parse_state_vector(vector)
+    return result
 
 
 UPSERT_SQL = """
@@ -261,10 +273,12 @@ def write_cache(cache_path, payload):
     os.replace(tmp_path, cache_path)
 
 
-def track_one_aircraft(token, conn, tail_number, icao24, now):
-    """Runs the full per-aircraft pipeline. Raises on failure -- caller
-    decides whether that aborts the whole run or just this aircraft."""
-    state = query_state(token, icao24)
+def track_one_aircraft(conn, tail_number, icao24, state, now):
+    """Runs the full per-aircraft pipeline given an already-fetched live
+    state (or None, e.g. the aircraft isn't currently broadcasting, or the
+    shared states/all call failed and every aircraft falls back to
+    DB-history-only for this run). Raises on failure -- caller decides
+    whether that aborts the whole run or just this aircraft."""
     if state is not None:
         upsert_position(conn, tail_number, icao24, state, now)
         conn.commit()
@@ -292,12 +306,19 @@ def main():
         print(f"ERROR failed to get OpenSky bearer token: {e}", file=sys.stderr)
         return 1
 
+    try:
+        states = query_states(token, [icao24 for _, icao24 in aircraft])
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        print(f"WARN failed to fetch live states, falling back to DB history only: {e}", file=sys.stderr)
+        states = {}
+
     conn = psycopg2.connect(**DB_DSN)
     any_failed = False
     try:
         for tail_number, icao24 in aircraft:
             try:
-                payload = track_one_aircraft(token, conn, tail_number, icao24, now)
+                state = states.get(icao24)
+                payload = track_one_aircraft(conn, tail_number, icao24, state, now)
             except (urllib.error.URLError, TimeoutError, ValueError, psycopg2.Error) as e:
                 print(f"ERROR {tail_number}: {e}", file=sys.stderr)
                 any_failed = True
