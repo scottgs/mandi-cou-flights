@@ -45,9 +45,9 @@ command_line:
         - historical_flights
 
   - sensor:
-      name: "N621MM Tracker"
-      unique_id: n621mm_tracker
-      command: "cat /config/www/cou_flights/n621mm.json"
+      name: "N2169F Tracker"
+      unique_id: n2169f_tracker
+      command: "cat /config/www/cou_flights/n2169f.json"
       scan_interval: 60
       value_template: "{{ value_json.fetched_at }}"
       json_attributes:
@@ -58,7 +58,7 @@ command_line:
         - current
         - historical_flights
 
-# sensor.n8382a_tracker/sensor.n621mm_tracker's attributes carry the full
+# sensor.n8382a_tracker/sensor.n2169f_tracker's attributes carry the full
 # trail/historical_flights blob -- small today but growing as real flights
 # accumulate, and HA's recorder would otherwise write that whole blob to its
 # database on every ~60s poll. There's no core-recorder mechanism to exclude
@@ -71,4 +71,4 @@ recorder:
   exclude:
     entities:
       - sensor.n8382a_tracker
-      - sensor.n621mm_tracker
+      - sensor.n2169f_tracker

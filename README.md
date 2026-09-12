@@ -29,7 +29,7 @@ in this README.
 ### Aircraft trackers (XS / TS tabs)
 
 Two more dashboard tabs each track a specific tail number (N8382A "XS",
-N621MM "TS") on a live Leaflet map, fed by two independent, complementary
+N2169F "TS") on a live Leaflet map, fed by two independent, complementary
 jobs that both write to the same PostGIS table (`aircraft_positions`) and
 the same per-aircraft JSON caches (`www/cou_flights/<tail_lowercased>.json`),
 via shared session-derivation logic in `fetch/aircraft_shared.py`:
@@ -56,12 +56,12 @@ cache, even when nothing new was found, so `fetched_at` reflects the true
 last-check time. One aircraft's OpenSky/DB failure is logged and the run
 continues to the others. A `command_line` sensor per aircraft in
 `ha/packages/cou_flights.yaml` (`sensor.n8382a_tracker`,
-`sensor.n621mm_tracker`) exposes each cache to HA; each tab renders its
+`sensor.n2169f_tracker`) exposes each cache to HA; each tab renders its
 aircraft with the same custom Lovelace card
 (`ha/www/community/mandi-aircraft-tracker/mandi-aircraft-tracker-card.js`,
 vendored Leaflet, no HACS dependency, parameterized by `entity`) showing the
-current in-flight trail plus up to 5 most-recent past flights, faded by
-recency.
+current in-flight trail plus every flight in the trailing 24h (or the 5
+most recent, whichever is larger), color-graded by recency.
 
 Design/rationale for the 8a-8p + hourly-catch-up split:
 `docs/superpowers/specs/2026-09-08-hourly-backfill-design.md`.

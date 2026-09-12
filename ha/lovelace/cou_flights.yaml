@@ -143,9 +143,9 @@ views:
         entity: sensor.n8382a_tracker
 
   - title: TS
-    path: n621mm-tracker
+    path: n2169f-tracker
     icon: mdi:airplane-marker
     type: panel
     cards:
       - type: custom:mandi-aircraft-tracker-card
-        entity: sensor.n621mm_tracker
+        entity: sensor.n2169f_tracker

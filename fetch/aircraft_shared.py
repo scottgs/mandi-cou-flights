@@ -33,7 +33,7 @@ import psycopg2.extras
 # what's present in this dict.
 TAIL_TO_ICAO24 = {
     "N8382A": "ab78b1",
-    "N621MM": "a81b13",
+    "N2169F": "a1d365",
 }
 
 TZ = ZoneInfo("America/Chicago")

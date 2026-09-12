@@ -15,7 +15,7 @@ acts as a safety net if the live poller ever fails during the day.
 
 Design/rationale: docs/superpowers/specs/2026-09-08-hourly-backfill-design.md
 
-Run standalone to test: python3 aircraft-hourly-backfill.py N8382A N621MM
+Run standalone to test: python3 aircraft-hourly-backfill.py N8382A N2169F
 """
 import json
 import os

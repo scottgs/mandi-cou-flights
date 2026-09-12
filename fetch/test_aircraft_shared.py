@@ -27,8 +27,8 @@ class TestResolveAircraft(unittest.TestCase):
 
     def test_multiple_known_tail_numbers_preserve_order(self):
         self.assertEqual(
-            shared.resolve_aircraft(["N621MM", "N8382A"]),
-            [("N621MM", "a81b13"), ("N8382A", "ab78b1")],
+            shared.resolve_aircraft(["N2169F", "N8382A"]),
+            [("N2169F", "a1d365"), ("N8382A", "ab78b1")],
         )
 
     def test_unknown_tail_number_raises(self):
@@ -62,7 +62,7 @@ class TestCachePathFor(unittest.TestCase):
 
     def test_different_aircraft_get_different_paths(self):
         self.assertNotEqual(
-            shared.cache_path_for("N8382A"), shared.cache_path_for("N621MM")
+            shared.cache_path_for("N8382A"), shared.cache_path_for("N2169F")
         )
 
 
@@ -139,8 +139,8 @@ class TestBuildCachePayload(unittest.TestCase):
         self.assertEqual(payload["tail_number"], "N8382A")
 
     def test_tail_number_is_parameterized_not_hardcoded(self):
-        payload = shared.build_cache_payload("N621MM", [], dt(30))
-        self.assertEqual(payload["tail_number"], "N621MM")
+        payload = shared.build_cache_payload("N2169F", [], dt(30))
+        self.assertEqual(payload["tail_number"], "N2169F")
 
     def test_grounded_with_history(self):
         session_a = [

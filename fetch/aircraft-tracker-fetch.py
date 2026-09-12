@@ -24,7 +24,7 @@ Design/rationale: docs/superpowers/specs/2026-09-06-aircraft-tracker-design.md
 (multi-aircraft generalization), and docs/superpowers/specs/2026-09-08-hourly-backfill-design.md
 (8a-8p live window + hourly catch-up).
 
-Run standalone to test: python3 aircraft-tracker-fetch.py N8382A N621MM
+Run standalone to test: python3 aircraft-tracker-fetch.py N8382A N2169F
 """
 import json
 import os
